@@ -1,22 +1,20 @@
 # ============================================================
 # L&D Operations Copilot — Daily Brief GitHub Actions Workflow
 # ============================================================
-# Triggers every day at 9:00 AM IST (3:30 AM UTC)
-# Calls the Cloud Run endpoint to generate and email the brief
+# Runs directly inside GitHub Actions runner (100% FREE, NO CLOUD RUN REQUIRED)
+# Ideal when GCP billing is verification pending.
 #
-# Required GitHub Secrets:
-#   CLOUD_RUN_URL    — Full URL of the Cloud Run service
-#   API_TRIGGER_TOKEN — Bearer token for authentication
+# Triggers every day at 9:00 AM IST (3:30 AM UTC).
 # ============================================================
 
 name: Daily Morning Brief
 
 on:
-  # Cron runs in UTC. 9:00 AM IST = 3:30 AM UTC
+  # 9:00 AM IST = 3:30 AM UTC
   schedule:
     - cron: '30 3 * * *'
 
-  # Allow manual trigger for testing
+  # Allow manual trigger for testing via GitHub Actions UI
   workflow_dispatch:
 
 jobs:
@@ -26,27 +24,31 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: 🌅 Trigger Daily Brief Generation
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: 📦 Install dependencies
         run: |
-          echo "🕘 Triggering daily brief at $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-          echo "   ($(TZ='Asia/Kolkata' date '+%Y-%m-%d %H:%M:%S IST'))"
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-          RESPONSE=$(curl -s -w "\n%{http_code}" \
-            -X POST "${{ secrets.CLOUD_RUN_URL }}/generate-brief" \
-            -H "Authorization: Bearer ${{ secrets.API_TRIGGER_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            --max-time 120)
-
-          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-          BODY=$(echo "$RESPONSE" | head -n -1)
-
-          echo "📊 Response Code: $HTTP_CODE"
-          echo "📋 Response Body:"
-          echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
-
-          if [ "$HTTP_CODE" -ne 200 ]; then
-            echo "❌ Brief generation failed with HTTP $HTTP_CODE"
-            exit 1
-          fi
-
-          echo "✅ Daily brief generated and sent successfully!"
+      - name: 🌅 Generate and Send Daily Brief
+        env:
+          OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
+          OAUTH_CLIENT_SECRET: ${{ secrets.OAUTH_CLIENT_SECRET }}
+          OAUTH_REFRESH_TOKEN: ${{ secrets.OAUTH_REFRESH_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: gemini-3.5-flash
+          ACE_SHEET_ID: ${{ secrets.ACE_SHEET_ID }}
+          API_TRIGGER_TOKEN: ${{ secrets.API_TRIGGER_TOKEN }}
+          USER_EMAIL: ${{ secrets.USER_EMAIL || 'yuvrajtale070@gmail.com' }}
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID || 'project-e5a2b3a6-f74d-4dfa-bed' }}
+        run: |
+          echo "🕘 Running Daily Brief at $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          python -m src.run_daily
