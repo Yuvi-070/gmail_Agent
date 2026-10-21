@@ -1,26 +1,36 @@
 # ============================================================
-# L&D Operations Copilot — Hybrid GitHub Actions Workflow
+# L&D Operations Copilot — Daily Brief Workflow
 # ============================================================
-# Automatic Dual-Mode Operation:
-# 1. CLOUD RUN MODE:
-#    If 'CLOUD_RUN_URL' secret is set, it triggers your Cloud Run endpoint.
-# 2. DIRECT RUNNER MODE (Zero-Billing Fallback):
-#    If 'CLOUD_RUN_URL' is NOT set (e.g. while billing verification is pending),
-#    it executes the Python pipeline directly on the GitHub Actions runner.
+# Supports BOTH:
+#   Option 1: Direct Runner (Runs directly on GitHub Actions runner — No Cloud Run needed)
+#   Option 2: Cloud Run (Calls Cloud Run endpoint via HTTPS POST)
 #
-# When your GCP billing verification finishes, simply deploy to Cloud Run
-# and set the CLOUD_RUN_URL secret. It switches automatically with zero code changes!
+# Manual Trigger:
+#   You can choose the mode explicitly from the GitHub Actions UI!
+#
+# Daily Cron (9:00 AM IST = 3:30 AM UTC):
+#   Runs in 'auto' mode — uses Cloud Run if CLOUD_RUN_URL exists,
+#   otherwise automatically uses GitHub Actions Direct Runner.
 # ============================================================
 
 name: Daily Morning Brief
 
 on:
-  # 9:00 AM IST = 3:30 AM UTC
   schedule:
+    # 9:00 AM IST = 3:30 AM UTC
     - cron: '30 3 * * *'
 
-  # Allow manual trigger for testing via GitHub Actions UI
   workflow_dispatch:
+    inputs:
+      execution_mode:
+        description: 'Select execution mode'
+        required: true
+        default: 'auto'
+        type: choice
+        options:
+          - 'auto'
+          - 'github_actions_direct'
+          - 'cloud_run'
 
 jobs:
   generate-brief:
@@ -30,13 +40,20 @@ jobs:
 
     steps:
       # ──────────────────────────────────────────────────────────
-      # MODE A: Cloud Run Mode (Active when CLOUD_RUN_URL exists)
+      # MODE A: Cloud Run Mode
+      # Active if manually requested as 'cloud_run' OR
+      # in 'auto' mode when CLOUD_RUN_URL secret is present.
       # ──────────────────────────────────────────────────────────
       - name: 🚀 Trigger via Cloud Run
-        if: ${{ secrets.CLOUD_RUN_URL != '' }}
+        if: ${{ github.event.inputs.execution_mode == 'cloud_run' || (github.event.inputs.execution_mode != 'github_actions_direct' && secrets.CLOUD_RUN_URL != '') }}
         run: |
-          echo "🌐 CLOUD_RUN_URL secret detected — invoking Cloud Run service..."
-          echo "🕘 Triggering brief at $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          if [ -z "${{ secrets.CLOUD_RUN_URL }}" ]; then
+            echo "❌ Error: CLOUD_RUN_URL secret is not set in repository secrets."
+            exit 1
+          fi
+
+          echo "🌐 Invoking Cloud Run service: ${{ secrets.CLOUD_RUN_URL }}"
+          echo "🕘 Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC') ($(TZ='Asia/Kolkata' date '+%Y-%m-%d %H:%M:%S IST'))"
 
           RESPONSE=$(curl -s -w "\n%{http_code}" \
             -X POST "${{ secrets.CLOUD_RUN_URL }}/generate-brief" \
@@ -52,34 +69,36 @@ jobs:
           echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
 
           if [ "$HTTP_CODE" -ne 200 ]; then
-            echo "❌ Cloud Run brief generation failed with HTTP $HTTP_CODE"
+            echo "❌ Cloud Run execution failed with HTTP $HTTP_CODE"
             exit 1
           fi
 
           echo "✅ Daily brief generated and sent successfully via Cloud Run!"
 
       # ──────────────────────────────────────────────────────────
-      # MODE B: Direct Runner Mode (Active when CLOUD_RUN_URL is empty)
+      # MODE B: GitHub Actions Direct Runner (Option 1)
+      # Active if manually requested as 'github_actions_direct' OR
+      # in 'auto' mode when CLOUD_RUN_URL is empty.
       # ──────────────────────────────────────────────────────────
-      - name: 📥 Checkout repository (Direct Runner Mode)
-        if: ${{ secrets.CLOUD_RUN_URL == '' }}
+      - name: 📥 Checkout repository (Option 1: Direct Runner)
+        if: ${{ github.event.inputs.execution_mode == 'github_actions_direct' || (github.event.inputs.execution_mode != 'cloud_run' && secrets.CLOUD_RUN_URL == '') }}
         uses: actions/checkout@v4
 
-      - name: 🐍 Set up Python 3.12 (Direct Runner Mode)
-        if: ${{ secrets.CLOUD_RUN_URL == '' }}
+      - name: 🐍 Set up Python 3.12 (Option 1: Direct Runner)
+        if: ${{ github.event.inputs.execution_mode == 'github_actions_direct' || (github.event.inputs.execution_mode != 'cloud_run' && secrets.CLOUD_RUN_URL == '') }}
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: 'pip'
 
-      - name: 📦 Install dependencies (Direct Runner Mode)
-        if: ${{ secrets.CLOUD_RUN_URL == '' }}
+      - name: 📦 Install dependencies (Option 1: Direct Runner)
+        if: ${{ github.event.inputs.execution_mode == 'github_actions_direct' || (github.event.inputs.execution_mode != 'cloud_run' && secrets.CLOUD_RUN_URL == '') }}
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: 🌅 Generate and Send Daily Brief (Direct Runner Mode)
-        if: ${{ secrets.CLOUD_RUN_URL == '' }}
+      - name: 🌅 Generate and Send Daily Brief (Option 1: Direct Runner)
+        if: ${{ github.event.inputs.execution_mode == 'github_actions_direct' || (github.event.inputs.execution_mode != 'cloud_run' && secrets.CLOUD_RUN_URL == '') }}
         env:
           OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
           OAUTH_CLIENT_SECRET: ${{ secrets.OAUTH_CLIENT_SECRET }}
@@ -91,6 +110,6 @@ jobs:
           USER_EMAIL: ${{ secrets.USER_EMAIL || 'yuvrajtale070@gmail.com' }}
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID || 'project-e5a2b3a6-f74d-4dfa-bed' }}
         run: |
-          echo "💻 No CLOUD_RUN_URL configured — running directly on GitHub Actions runner..."
-          echo "🕘 Running Daily Brief at $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "💻 Running directly on GitHub Actions Ubuntu Runner (Option 1)..."
+          echo "🕘 Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC') ($(TZ='Asia/Kolkata' date '+%Y-%m-%d %H:%M:%S IST'))"
           python -m src.run_daily

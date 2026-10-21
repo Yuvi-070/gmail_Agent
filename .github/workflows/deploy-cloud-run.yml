@@ -1,0 +1,80 @@
+# ============================================================
+# L&D Operations Copilot — Cloud Run Deployer Workflow
+# ============================================================
+# Run this workflow manually from GitHub Actions UI when your
+# GCP billing account verification completes!
+#
+# Prerequisites in GitHub Secrets:
+#   GCP_SA_KEY: (Optional) Service Account JSON key if deploying via GitHub Actions
+#
+# Alternatively, you can always run `./scripts/deploy_cloud_run.ps1` locally!
+# ============================================================
+
+name: Deploy to Cloud Run
+
+on:
+  workflow_dispatch:
+    inputs:
+      gcp_region:
+        description: 'Cloud Run Region'
+        required: true
+        default: 'asia-south1'
+      service_name:
+        description: 'Service Name'
+        required: true
+        default: 'ld-copilot'
+
+jobs:
+  deploy:
+    name: Build & Deploy Container to Cloud Run
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🔐 Authenticate to Google Cloud
+        if: ${{ secrets.GCP_SA_KEY != '' }}
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: 🛠️ Set up Cloud SDK
+        if: ${{ secrets.GCP_SA_KEY != '' }}
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: 🚀 Deploy to Cloud Run
+        if: ${{ secrets.GCP_SA_KEY != '' }}
+        run: |
+          PROJECT_ID="${{ secrets.GCP_PROJECT_ID || 'project-e5a2b3a6-f74d-4dfa-bed' }}"
+          REGION="${{ github.event.inputs.gcp_region }}"
+          SERVICE="${{ github.event.inputs.service_name }}"
+
+          echo "🔧 Enabling necessary APIs..."
+          gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com --project "$PROJECT_ID"
+
+          echo "📦 Deploying $SERVICE to $REGION in $PROJECT_ID..."
+          gcloud run deploy "$SERVICE" \
+            --source . \
+            --region "$REGION" \
+            --set-env-vars="OAUTH_CLIENT_ID=${{ secrets.OAUTH_CLIENT_ID }},OAUTH_CLIENT_SECRET=${{ secrets.OAUTH_CLIENT_SECRET }},OAUTH_REFRESH_TOKEN=${{ secrets.OAUTH_REFRESH_TOKEN }},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }},GEMINI_MODEL=gemini-3.5-flash,ACE_SHEET_ID=${{ secrets.ACE_SHEET_ID }},API_TRIGGER_TOKEN=${{ secrets.API_TRIGGER_TOKEN }},USER_EMAIL=${{ secrets.USER_EMAIL || 'yuvrajtale070@gmail.com' }},GCP_PROJECT_ID=$PROJECT_ID" \
+            --min-instances 0 \
+            --max-instances 1 \
+            --memory 512Mi \
+            --cpu 1 \
+            --timeout 120 \
+            --allow-unauthenticated \
+            --project "$PROJECT_ID"
+
+          SERVICE_URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --project "$PROJECT_ID" --format "value(status.url)")
+          echo "✅ Cloud Run deployed successfully!"
+          echo "🌐 URL: $SERVICE_URL"
+          echo "👉 Now add 'CLOUD_RUN_URL=$SERVICE_URL' to your GitHub Secrets!"
+
+      - name: ℹ️ Local Alternative Notice
+        if: ${{ secrets.GCP_SA_KEY == '' }}
+        run: |
+          echo "💡 Note: To deploy from GitHub Actions, add 'GCP_SA_KEY' secret."
+          echo "👉 Or deploy directly from your local terminal with one command:"
+          echo "     .\scripts\deploy_cloud_run.ps1"
