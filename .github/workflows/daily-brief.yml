@@ -39,77 +39,69 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      # ──────────────────────────────────────────────────────────
-      # MODE A: Cloud Run Mode
-      # Active if manually requested as 'cloud_run' OR
-      # in 'auto' mode when CLOUD_RUN_URL secret is present.
-      # ──────────────────────────────────────────────────────────
-      - name: 🚀 Trigger via Cloud Run
-        if: ${{ github.event.inputs.execution_mode == 'cloud_run' || (github.event.inputs.execution_mode != 'github_actions_direct' && secrets.CLOUD_RUN_URL != '') }}
-        run: |
-          if [ -z "${{ secrets.CLOUD_RUN_URL }}" ]; then
-            echo "❌ Error: CLOUD_RUN_URL secret is not set in repository secrets."
-            exit 1
-          fi
-
-          echo "🌐 Invoking Cloud Run service: ${{ secrets.CLOUD_RUN_URL }}"
-          echo "🕘 Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC') ($(TZ='Asia/Kolkata' date '+%Y-%m-%d %H:%M:%S IST'))"
-
-          RESPONSE=$(curl -s -w "\n%{http_code}" \
-            -X POST "${{ secrets.CLOUD_RUN_URL }}/generate-brief" \
-            -H "Authorization: Bearer ${{ secrets.API_TRIGGER_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            --max-time 120)
-
-          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-          BODY=$(echo "$RESPONSE" | head -n -1)
-
-          echo "📊 Response Code: $HTTP_CODE"
-          echo "📋 Response Body:"
-          echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
-
-          if [ "$HTTP_CODE" -ne 200 ]; then
-            echo "❌ Cloud Run execution failed with HTTP $HTTP_CODE"
-            exit 1
-          fi
-
-          echo "✅ Daily brief generated and sent successfully via Cloud Run!"
-
-      # ──────────────────────────────────────────────────────────
-      # MODE B: GitHub Actions Direct Runner (Option 1)
-      # Active if manually requested as 'github_actions_direct' OR
-      # in 'auto' mode when CLOUD_RUN_URL is empty.
-      # ──────────────────────────────────────────────────────────
-      - name: 📥 Checkout repository (Option 1: Direct Runner)
-        if: ${{ github.event.inputs.execution_mode == 'github_actions_direct' || (github.event.inputs.execution_mode != 'cloud_run' && secrets.CLOUD_RUN_URL == '') }}
+      - name: 📥 Checkout repository
         uses: actions/checkout@v4
 
-      - name: 🐍 Set up Python 3.12 (Option 1: Direct Runner)
-        if: ${{ github.event.inputs.execution_mode == 'github_actions_direct' || (github.event.inputs.execution_mode != 'cloud_run' && secrets.CLOUD_RUN_URL == '') }}
+      - name: 🐍 Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: 'pip'
 
-      - name: 📦 Install dependencies (Option 1: Direct Runner)
-        if: ${{ github.event.inputs.execution_mode == 'github_actions_direct' || (github.event.inputs.execution_mode != 'cloud_run' && secrets.CLOUD_RUN_URL == '') }}
+      - name: 📦 Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: 🌅 Generate and Send Daily Brief (Option 1: Direct Runner)
-        if: ${{ github.event.inputs.execution_mode == 'github_actions_direct' || (github.event.inputs.execution_mode != 'cloud_run' && secrets.CLOUD_RUN_URL == '') }}
+      - name: 🌅 Generate and Send Daily Brief
         env:
+          CLOUD_RUN_URL: ${{ secrets.CLOUD_RUN_URL }}
+          API_TRIGGER_TOKEN: ${{ secrets.API_TRIGGER_TOKEN }}
           OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
           OAUTH_CLIENT_SECRET: ${{ secrets.OAUTH_CLIENT_SECRET }}
           OAUTH_REFRESH_TOKEN: ${{ secrets.OAUTH_REFRESH_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: gemini-3.5-flash
           ACE_SHEET_ID: ${{ secrets.ACE_SHEET_ID }}
-          API_TRIGGER_TOKEN: ${{ secrets.API_TRIGGER_TOKEN }}
           USER_EMAIL: ${{ secrets.USER_EMAIL || 'yuvrajtale070@gmail.com' }}
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID || 'project-e5a2b3a6-f74d-4dfa-bed' }}
+          EXECUTION_MODE: ${{ inputs.execution_mode || 'auto' }}
         run: |
-          echo "💻 Running directly on GitHub Actions Ubuntu Runner (Option 1)..."
-          echo "🕘 Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC') ($(TZ='Asia/Kolkata' date '+%Y-%m-%d %H:%M:%S IST'))"
-          python -m src.run_daily
+          echo "🕘 Execution Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC') ($(TZ='Asia/Kolkata' date '+%Y-%m-%d %H:%M:%S IST'))"
+          echo "⚙️ Mode Selected: $EXECUTION_MODE"
+
+          USE_CLOUD_RUN=false
+          if [ "$EXECUTION_MODE" = "cloud_run" ]; then
+            USE_CLOUD_RUN=true
+          elif [ "$EXECUTION_MODE" = "auto" ] && [ -n "$CLOUD_RUN_URL" ]; then
+            USE_CLOUD_RUN=true
+          fi
+
+          if [ "$USE_CLOUD_RUN" = "true" ]; then
+            if [ -z "$CLOUD_RUN_URL" ]; then
+              echo "❌ Error: CLOUD_RUN_URL secret is not set!"
+              exit 1
+            fi
+            echo "🌐 Invoking Cloud Run endpoint: $CLOUD_RUN_URL/generate-brief"
+            RESPONSE=$(curl -s -w "\n%{http_code}" \
+              -X POST "$CLOUD_RUN_URL/generate-brief" \
+              -H "Authorization: Bearer $API_TRIGGER_TOKEN" \
+              -H "Content-Type: application/json" \
+              --max-time 120)
+
+            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+            BODY=$(echo "$RESPONSE" | head -n -1)
+
+            echo "📊 Response Code: $HTTP_CODE"
+            echo "📋 Response Body:"
+            echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
+
+            if [ "$HTTP_CODE" -ne 200 ]; then
+              echo "❌ Cloud Run execution failed with HTTP $HTTP_CODE"
+              exit 1
+            fi
+            echo "✅ Daily brief delivered successfully via Cloud Run!"
+          else
+            echo "💻 Running directly on GitHub Actions runner (Direct Runner Mode)..."
+            python -m src.run_daily
+          fi
