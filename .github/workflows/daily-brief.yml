@@ -1,0 +1,52 @@
+# ============================================================
+# L&D Operations Copilot — Daily Brief GitHub Actions Workflow
+# ============================================================
+# Triggers every day at 9:00 AM IST (3:30 AM UTC)
+# Calls the Cloud Run endpoint to generate and email the brief
+#
+# Required GitHub Secrets:
+#   CLOUD_RUN_URL    — Full URL of the Cloud Run service
+#   API_TRIGGER_TOKEN — Bearer token for authentication
+# ============================================================
+
+name: Daily Morning Brief
+
+on:
+  # Cron runs in UTC. 9:00 AM IST = 3:30 AM UTC
+  schedule:
+    - cron: '30 3 * * *'
+
+  # Allow manual trigger for testing
+  workflow_dispatch:
+
+jobs:
+  generate-brief:
+    name: Generate & Send Daily Brief
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: 🌅 Trigger Daily Brief Generation
+        run: |
+          echo "🕘 Triggering daily brief at $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "   ($(TZ='Asia/Kolkata' date '+%Y-%m-%d %H:%M:%S IST'))"
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST "${{ secrets.CLOUD_RUN_URL }}/generate-brief" \
+            -H "Authorization: Bearer ${{ secrets.API_TRIGGER_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            --max-time 120)
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          echo "📊 Response Code: $HTTP_CODE"
+          echo "📋 Response Body:"
+          echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
+
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "❌ Brief generation failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+          echo "✅ Daily brief generated and sent successfully!"

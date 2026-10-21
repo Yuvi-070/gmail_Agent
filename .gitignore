@@ -1,0 +1,32 @@
+# Environment
+.env
+*.env
+
+# Credentials — NEVER commit
+client_secret.json
+token.json
+*.p12
+*.pem
+service-account-key.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
