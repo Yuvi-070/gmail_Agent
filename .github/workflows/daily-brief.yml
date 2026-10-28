@@ -20,6 +20,18 @@ on:
     # 03:30 UTC = 09:00 IST (Asia/Kolkata)
     - cron: '30 3 * * *'
 
+  workflow_dispatch:
+    inputs:
+      execution_mode:
+        description: 'Execution mode for a manual recovery run'
+        required: true
+        default: 'auto'
+        type: choice
+        options:
+          - 'auto'
+          - 'github_actions_direct'
+          - 'cloud_run'
+
 jobs:
   generate-brief:
     name: Generate & Send Daily Brief
@@ -53,7 +65,7 @@ jobs:
           ACE_SHEET_ID: ${{ secrets.ACE_SHEET_ID }}
           USER_EMAIL: ${{ secrets.USER_EMAIL || 'yuvrajtale070@gmail.com' }}
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID || 'project-e5a2b3a6-f74d-4dfa-bed' }}
-          EXECUTION_MODE: auto
+          EXECUTION_MODE: ${{ inputs.execution_mode || 'auto' }}
         run: |
           echo "🕘 Execution Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC') ($(TZ='Asia/Kolkata' date '+%Y-%m-%d %H:%M:%S IST'))"
           echo "⚙️ Mode Selected: $EXECUTION_MODE"
