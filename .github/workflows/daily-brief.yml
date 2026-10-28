@@ -79,13 +79,7 @@ jobs:
 
           if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
             if [ "$SCHEDULE_CRON_EXPR" != "30 3 * * *" ]; then
-              echo "⚠️ Unexpected schedule expression detected: $SCHEDULE_CRON_EXPR"
-            fi
-
-            IST_HOUR=$(TZ='Asia/Kolkata' date '+%H')
-            if [ "$IST_HOUR" != "09" ] && [ "$IST_HOUR" != "10" ]; then
-              echo "⏭️ Scheduled run is outside 09:00-10:59 IST guardrail; skipping send."
-              echo "ℹ️ This prevents unintended afternoon delivery from delayed scheduler runs."
+              echo "⏭️ Skipping run because it does not match the 9:00 AM IST cron expression."
               exit 0
             fi
           fi
