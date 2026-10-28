@@ -1,18 +1,15 @@
 # ============================================================
 # L&D Operations Copilot — Daily Brief Workflow
 # ============================================================
-# Supports BOTH:
+# Runs automatically:
 #   Option 1: Direct Runner (Runs directly on GitHub Actions runner — No Cloud Run needed)
 #   Option 2: Cloud Run (Calls Cloud Run endpoint via HTTPS POST)
-#
-# Manual Trigger:
-#   You can choose the mode explicitly from the GitHub Actions UI!
 #
 # Daily Cron (9:00 AM IST = 3:30 AM UTC):
 #   Runs in 'auto' mode — uses Cloud Run if CLOUD_RUN_URL exists,
 #   otherwise automatically uses GitHub Actions Direct Runner.
-#   Includes schedule diagnostics + a schedule-only IST guardrail
-#   to avoid unintended afternoon sends from heavily delayed runs.
+#   GitHub Actions may delay a scheduled run under load, but the run is
+#   never skipped because of that delay.
 # ============================================================
 
 name: Daily Morning Brief
@@ -22,18 +19,6 @@ on:
     # GitHub Actions cron is UTC.
     # 03:30 UTC = 09:00 IST (Asia/Kolkata)
     - cron: '30 3 * * *'
-
-  workflow_dispatch:
-    inputs:
-      execution_mode:
-        description: 'Select execution mode'
-        required: true
-        default: 'auto'
-        type: choice
-        options:
-          - 'auto'
-          - 'github_actions_direct'
-          - 'cloud_run'
 
 jobs:
   generate-brief:
@@ -68,21 +53,10 @@ jobs:
           ACE_SHEET_ID: ${{ secrets.ACE_SHEET_ID }}
           USER_EMAIL: ${{ secrets.USER_EMAIL || 'yuvrajtale070@gmail.com' }}
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID || 'project-e5a2b3a6-f74d-4dfa-bed' }}
-          EXECUTION_MODE: ${{ inputs.execution_mode || 'auto' }}
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          SCHEDULE_CRON_EXPR: ${{ github.event.schedule || '' }}
+          EXECUTION_MODE: auto
         run: |
           echo "🕘 Execution Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC') ($(TZ='Asia/Kolkata' date '+%Y-%m-%d %H:%M:%S IST'))"
-          echo "🔔 Trigger: $GITHUB_EVENT_NAME"
-          echo "🗓️ Schedule Expression (when scheduled): ${SCHEDULE_CRON_EXPR:-N/A}"
           echo "⚙️ Mode Selected: $EXECUTION_MODE"
-
-          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
-            if [ "$SCHEDULE_CRON_EXPR" != "30 3 * * *" ]; then
-              echo "⏭️ Skipping run because it does not match the 9:00 AM IST cron expression."
-              exit 0
-            fi
-          fi
 
           USE_CLOUD_RUN=false
           if [ "$EXECUTION_MODE" = "cloud_run" ]; then
